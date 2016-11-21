@@ -29,7 +29,9 @@ setup(
         'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
     ],
     install_requires = [
-        'djangorestframework>=3.0',
+        'djangorestframework>=3.5',
+        'coreapi',
+        'Markdown',  # For rendering readable documentation for docstrings
         'aristotle-metadata-registry'
     ]
 
