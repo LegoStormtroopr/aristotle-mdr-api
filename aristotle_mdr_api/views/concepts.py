@@ -12,6 +12,7 @@ from rest_framework.decorators import detail_route
 from django.forms import model_to_dict
 from aristotle_mdr import models, perms
 from aristotle_mdr.forms.search import PermissionSearchQuerySet
+from aristotle_mdr_api.serializers.base import Serializer, exclude_fields
 
 from rest_framework import viewsets
 
@@ -24,15 +25,15 @@ from aristotle_mdr_api.views.utils import (
 )
 
 
-standard_fields = ('id','concept_type','api_url','name','status','definition')
+standard_fields = ('id','concept_type','api_url','name','visibility_status','definition')
 class ConceptSerializerBase(serializers.ModelSerializer):
     api_url = serializers.HyperlinkedIdentityField(
         view_name='aristotle_mdr_api:_concept-detail',
         format='html'
     )
     concept_type = serializers.SerializerMethodField()
-    status = serializers.SerializerMethodField()
     definition = serializers.SerializerMethodField()
+    visibility_status = serializers.SerializerMethodField()
 
     class Meta:
         model = models._concept
@@ -41,7 +42,7 @@ class ConceptSerializerBase(serializers.ModelSerializer):
         item = instance.item
         out = {"app":item._meta.app_label,'model':item._meta.model_name}
         return out
-    def get_status(self,instance):
+    def get_visibility_status(self,instance):
         out = {"public":instance.is_public(),'locked':instance.is_locked()}
         return out
     def get_definition(self,instance):
@@ -51,24 +52,22 @@ class ConceptListSerializer(DescriptionStubSerializerMixin,ConceptSerializerBase
     pass
 
 class ConceptDetailSerializer(ConceptSerializerBase):
-    superseded_by = serializers.HyperlinkedRelatedField(view_name='aristotle_mdr_api:_concept-detail', format='html',read_only='True')
-    supersedes = serializers.HyperlinkedRelatedField(many=True,view_name='aristotle_mdr_api:_concept-detail', format='html',read_only='True')
     fields = serializers.SerializerMethodField('get_extra_fields')
     ids = serializers.SerializerMethodField('get_identifiers')
     slots = serializers.SerializerMethodField()
+    statuses = serializers.SerializerMethodField()
 
 
     _serialised_object = None
     def get_serialized_object(self, instance):
         if not self._serialised_object:
-            from aristotle_mdr_api.serializers.base import Serializer
             s = Serializer().serialize([instance])
             self._serialised_object = s[0]
         return self._serialised_object
         
     class Meta:
         model = models._concept
-        fields = standard_fields+('fields','superseded_by','supersedes','ids','slots')
+        fields = standard_fields+('fields','statuses','ids','slots')
 
     def get_extra_fields(self, instance):
         # concept_dict = model_to_dict(instance,
@@ -81,14 +80,19 @@ class ConceptDetailSerializer(ConceptSerializerBase):
 
     def get_identifiers(self, instance):
         obj = self.get_serialized_object(instance)
-        return obj #.get('ids',[])
+        return obj.get('ids',[])
 
     def get_slots(self, instance):
         obj = self.get_serialized_object(instance)
         return obj.get('slots',[])
 
+    def get_statuses(self, instance):
+        obj = self.get_serialized_object(instance)
+        return instance.current_statuses().values(*exclude_fields(models.Status, 'id'))
+        #return obj.get('slots',[])
 
-class ConceptViewSet(viewsets.ModelViewSet, MultiSerializerViewSetMixin):
+
+class ConceptViewSet(MultiSerializerViewSetMixin):
     #mixins.RetrieveModelMixin,
                     #mixins.UpdateModelMixin,
                     

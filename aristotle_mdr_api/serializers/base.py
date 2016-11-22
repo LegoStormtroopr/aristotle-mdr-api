@@ -23,6 +23,9 @@ excluded_fields = [
         "submitter",
     ]
 
+def exclude_fields(obj,excludes):
+    return [n for n in obj._meta.get_all_field_names() if n not in excludes]
+
 class Serializer(PySerializer):
     """
     Serializes a QuerySet to basic Python objects.
@@ -114,9 +117,14 @@ class Serializer(PySerializer):
             self._current[field.name] = [
                 m2m_value(related) for related in getattr(obj, field.name).iterator()
             ]
+        elif hasattr(obj, 'serialize_weak_entities') and field.name in dict(obj.serialize_weak_entities).keys():
+            weak_field = dict(obj.serialize_weak_entities).get(field.name)
+            foreign_model = getattr(obj.__class__, weak_field).related.related_model
+            self._current[field.name] = [
+                related for related in getattr(obj, weak_field).all().values(*exclude_fields(foreign_model, 'id'))
+            ]
 
     def getvalue(self):
-        print self.objects
         return self.objects
 
     def serialize(self, queryset, **options):
