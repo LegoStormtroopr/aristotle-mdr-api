@@ -19,6 +19,7 @@ from aristotle_mdr_api.views.utils import (
     DescriptionStubSerializerMixin,
     MultiSerializerViewSetMixin,
     ConceptResultsPagination,
+    UUIDLookupModelMixin,
     api_excluded_fields,
     get_api_fields
 )
@@ -71,20 +72,24 @@ class SearchViewSet(viewsets.GenericViewSet):
         return Response(serializer.data)
 
 class RegistrationAuthorityListSerializer(serializers.ModelSerializer,DescriptionStubSerializerMixin):
-    api_url = serializers.HyperlinkedIdentityField(view_name='aristotle_mdr_api:registrationauthority-detail', format='html')
+    api_url = serializers.HyperlinkedIdentityField(
+        view_name='aristotle_mdr_api:registrationauthority-detail',
+        format='html',
+        lookup_field='uuid'
+    )
     class Meta:
         model = models.RegistrationAuthority
-        fields = ('id','api_url','name','definition','locked_state','public_state')
+        fields = ('uuid','api_url','name','definition','locked_state','public_state')
 
 class RegistrationAuthorityDetailSerializer(serializers.ModelSerializer):
     state_meanings = serializers.SerializerMethodField()
     class Meta:
         model = models.RegistrationAuthority
-        fields = ('id','name','definition','locked_state','public_state','state_meanings')
+        fields = ('uuid','name','definition','locked_state','public_state','state_meanings')
     def get_state_meanings(self,instance):
         return instance.statusDescriptions()
 
-class RegistrationAuthorityViewSet(MultiSerializerViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class RegistrationAuthorityViewSet(UUIDLookupModelMixin, MultiSerializerViewSetMixin, viewsets.ReadOnlyModelViewSet):
     __doc__ = """
     Provides access to a list of registration authorities with the fields:
 
@@ -104,3 +109,25 @@ class RegistrationAuthorityViewSet(MultiSerializerViewSetMixin, viewsets.ReadOnl
         'list':    RegistrationAuthorityListSerializer,
         'detail':  RegistrationAuthorityDetailSerializer,
     }
+
+
+# class OrganizationViewSet(UUIDLookupModelMixin, MultiSerializerViewSetMixin, viewsets.ReadOnlyModelViewSet):
+#     __doc__ = """
+#     Provides access to a list of registration authorities with the fields:
+
+#         %s
+
+#     A single registration authority can be retrieved but appending the `uuid` for that
+#     authority to the URL, giving access to the fields:
+
+#         %s
+
+#     ---
+#     """ % (OrganizationListSerializer.Meta.fields,OrganizationDetailSerializer.Meta.fields)
+
+#     queryset = models.RegistrationAuthority.objects.all()
+#     serializers = {
+#         'default':  OrganizationDetailSerializer,
+#         'list':    OrganizationListSerializer,
+#         'detail':  OrganizationDetailSerializer,
+#     }

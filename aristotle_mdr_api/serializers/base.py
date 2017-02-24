@@ -73,26 +73,11 @@ class Serializer(PySerializer):
             value = []
             # print field.get_attname()
             if getattr(obj, field.get_attname()) is not None:
-                value.append({
-                        "namespace": "#pk",
-                        "identifier": getattr(obj, field.get_attname()),
-                        "version": None
-                })
+                value = foreign_model.objects.get(pk=getattr(obj, field.get_attname())).uuid
+                #value = getattr(obj, field.get_attname()).uuid
+            else:
+                value = None
 
-            if hasattr(foreign_model, 'identifiers'):
-                related = getattr(obj, field.name)
-                #print obj.name, field.name, related
-                if related is not None:
-                    value += [
-                        {
-                            "namespace": scopedid.namespace.shorthand_prefix,
-                            "identifier": scopedid.identifier,
-                            "version": scopedid.version,
-                        }
-                        for scopedid in related.identifiers.all()
-                    ]
-            
-            
         elif self.use_natural_foreign_keys and hasattr(field.remote_field.model, 'natural_key'):
             related = getattr(obj, field.name)
             if related:

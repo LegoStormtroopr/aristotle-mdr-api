@@ -32,7 +32,8 @@ setup(
         'djangorestframework>=3.5',
         'coreapi',
         'Markdown',  # For rendering readable documentation for docstrings
-        'aristotle-metadata-registry'
+        'aristotle-metadata-registry'  # duh
+        'django-filter'
     ]
 
 )

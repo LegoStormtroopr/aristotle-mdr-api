@@ -1,4 +1,4 @@
-from django.conf.urls import patterns, include, url
+from django.conf.urls import include, url
 from aristotle_mdr_api.views import concepts, views, concepttypes
 from rest_framework import routers
 from rest_framework.schemas import SchemaGenerator, get_schema_view
@@ -10,9 +10,16 @@ router.register(r'concepts', concepts.ConceptViewSet)
 router.register(r'types', concepttypes.ConceptTypeViewSet)
 router.register(r'search', views.SearchViewSet, base_name="search")
 router.register(r'ras', views.RegistrationAuthorityViewSet)
+# router.register(r'organizations', views.OrganizationViewSet)
 
-urlpatterns = patterns('',
+
+from rest_framework_swagger.views import get_swagger_view
+
+schema_view = get_swagger_view(title='Aristotle API')
+
+urlpatterns = [
     url(r'^', include(router.urls)),
-    url('^schemas', schema_view),
+    url(r'^schemas/', schema_view),
     url(r'^auth/', include('rest_framework.urls', namespace='rest_framework')),
-    )
+    url(r'^swagger', schema_view)
+]

@@ -10,9 +10,11 @@ from rest_framework.reverse import reverse
 from rest_framework.decorators import detail_route
 
 from django.forms import model_to_dict
+
 from aristotle_mdr import models, perms
 from aristotle_mdr.forms.search import PermissionSearchQuerySet
 from aristotle_mdr_api.serializers.base import Serializer, exclude_fields
+from aristotle_mdr_api.filters import concept_backend
 
 from rest_framework import viewsets
 
@@ -20,16 +22,18 @@ from aristotle_mdr_api.views.utils import (
     DescriptionStubSerializerMixin,
     MultiSerializerViewSetMixin,
     ConceptResultsPagination,
+    UUIDLookupModelMixin,
     api_excluded_fields,
-    get_api_fields
+    get_api_fields,
 )
 
 
-standard_fields = ('id','concept_type','api_url','name','visibility_status','definition')
+standard_fields = ('uuid', 'concept_type','api_url','name','visibility_status','definition')
 class ConceptSerializerBase(serializers.ModelSerializer):
     api_url = serializers.HyperlinkedIdentityField(
         view_name='aristotle_mdr_api:_concept-detail',
-        format='html'
+        format='html',
+        lookup_field='uuid'
     )
     concept_type = serializers.SerializerMethodField()
     definition = serializers.SerializerMethodField()
@@ -55,6 +59,7 @@ class ConceptDetailSerializer(ConceptSerializerBase):
     fields = serializers.SerializerMethodField('get_extra_fields')
     ids = serializers.SerializerMethodField('get_identifiers')
     slots = serializers.SerializerMethodField()
+    links = serializers.SerializerMethodField()
     statuses = serializers.SerializerMethodField()
 
 
@@ -67,7 +72,7 @@ class ConceptDetailSerializer(ConceptSerializerBase):
         
     class Meta:
         model = models._concept
-        fields = standard_fields+('fields','statuses','ids','slots')
+        fields = standard_fields+('fields','statuses','ids','slots', 'links')
 
     def get_extra_fields(self, instance):
         # concept_dict = model_to_dict(instance,
@@ -80,19 +85,74 @@ class ConceptDetailSerializer(ConceptSerializerBase):
 
     def get_identifiers(self, instance):
         obj = self.get_serialized_object(instance)
-        return obj.get('ids',[])
+        ids = [
+            {
+                'namespace': {
+                    'naming_authority': scoped_id.namespace.naming_authority.uuid,
+                    'shorthand_prefix': scoped_id.namespace.shorthand_prefix,
+                },
+                'id': scoped_id.identifier,
+                'version': scoped_id.version
+            }
+            for scoped_id in instance.identifiers.all()
+        ]
+        return ids #obj.get('slots',[])
 
     def get_slots(self, instance):
         obj = self.get_serialized_object(instance)
-        return obj.get('slots',[])
+        slots = [
+            {'name': slot.name, 'type': slot.type, 'value': slot.value }
+            for slot in instance.slots.all()
+        ]
+        return slots #obj.get('slots',[])
+
+    def get_links(self, instance):
+        obj = self.get_serialized_object(instance)
+        from aristotle_mdr.contrib.links import models as link_models
+        obj_links = link_models.Link.objects.filter(linkend__concept=instance).all().distinct()
+
+        links = [
+            [{
+                'relation': {
+                    'uuid': link.relation.uuid,
+                    'name': link.relation.name,  # Optional!
+                },
+                'members': {   'concept': {
+                        'uuid': linkend.concept.uuid,
+                        'name': linkend.concept.name,  # Optional!
+                    },
+                    'role': {
+                        'ordinal': linkend.role.ordinal,
+                        'name': linkend.role.name,
+                        'definition': linkend.role.definition  # Optional!
+                    }
+                }
+            }
+                for linkend in link.linkend_set.all()
+            ]
+            for link in obj_links
+        ]
+        return links
 
     def get_statuses(self, instance):
         obj = self.get_serialized_object(instance)
-        return instance.current_statuses().values(*exclude_fields(models.Status, 'id'))
-        #return obj.get('slots',[])
+        stats = [
+            {
+                "changeDetails": status.changeDetails,
+                "until_date": status.until_date,
+                "registration_authority": status.registrationAuthority.uuid,
+                "state": status.state,
+                "state_meaning": status.get_state_display(),
+                "registrationDate": status.registrationDate
+            }
+            for status in instance.current_statuses()
+        ]
+
+        return stats
+        # return obj.get('statuses',[])
 
 
-class ConceptViewSet(MultiSerializerViewSetMixin):
+class ConceptViewSet(UUIDLookupModelMixin, MultiSerializerViewSetMixin):
     #mixins.RetrieveModelMixin,
                     #mixins.UpdateModelMixin,
                     
@@ -102,8 +162,8 @@ class ConceptViewSet(MultiSerializerViewSetMixin):
 
         %s
 
-    A single concept can be retrieved but appending the `id` for that
-    authority to the URL, giving access to the fields:
+    A single concept can be retrieved by appending the `uuid` for that
+    item to the URL, giving access to the fields:
 
         %s
 
@@ -122,8 +182,6 @@ class ConceptViewSet(MultiSerializerViewSetMixin):
 
     * `is_locked` (boolean) : restricts returned items to those which are locked/unlocked (True/False)
 
-    The following options can only be used if `type` is set to a valid concept type.
-
      * `superseded_by` (integer) : restricts returned items to those that are
         superseded by the concept with an id that matches the given value.
 
@@ -138,13 +196,16 @@ class ConceptViewSet(MultiSerializerViewSetMixin):
     queryset = models._concept.objects.all()
     serializer_class = ConceptListSerializer
     pagination_class = ConceptResultsPagination
+    filter_backends = (concept_backend.ConceptFilterBackend,)
+    filter_class = concept_backend.ConceptFilter
+
 
     serializers = {
         'default':  ConceptDetailSerializer,
         'list':    ConceptListSerializer,
         'detail':  ConceptDetailSerializer,
     }
-
+    
     def get_queryset(self):
         """
         Possible arguments include:
@@ -152,7 +213,7 @@ class ConceptViewSet(MultiSerializerViewSetMixin):
         type (string) : restricts to a particular concept type, eg. dataelement
 
         """
-        queryset = self.queryset
+        queryset = super(ConceptViewSet,self).get_queryset()
         concepttype = self.request.query_params.get('type', None)
         if concepttype is not None:
             ct = concepttype.lower().split(":",1)
@@ -163,9 +224,9 @@ class ConceptViewSet(MultiSerializerViewSetMixin):
                 model = concepttype
                 queryset = ContentType.objects.get(model=model).model_class().objects.all()
 
-            superseded_by_id = self.request.query_params.get('superseded_by', None)
-            if superseded_by_id is not None:
-                queryset = queryset.filter(superseded_by=superseded_by_id)
+            # superseded_by_id = self.request.query_params.get('superseded_by', None)
+            # if superseded_by_id is not None:
+            #     queryset = queryset.filter(superseded_by=superseded_by_id)
             is_superseded = self.request.query_params.get('is_superseded', False)
             if is_superseded:
                 queryset = queryset.filter(superseded_by__isnull=False)
@@ -182,11 +243,17 @@ class ConceptViewSet(MultiSerializerViewSetMixin):
 
         return queryset.visible(self.request.user)
 
-    def get_object(self):
-        item = super(ConceptViewSet,self).get_object()
-        request = self.request
-        item = item.item
+
+    def check_object_permissions(self, request, obj):
+        item = obj.item
         if not perms.user_can_view(request.user, item):
+            raise PermissionDenied
+        else:
+            return obj
+
+    def get_object(self):
+        item = super(ConceptViewSet,self).get_object().item
+        if not perms.user_can_view(self.request.user, item):
             raise PermissionDenied
         else:
             return item
