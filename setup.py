@@ -29,10 +29,10 @@ setup(
         'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
     ],
     install_requires = [
-        'djangorestframework>=3.5',
+        'djangorestframework>=3.6',
         'coreapi',
         'Markdown',  # For rendering readable documentation for docstrings
-        'aristotle-metadata-registry'  # duh
+        'aristotle-metadata-registry',  # duh
         'django-filter'
     ]
 
