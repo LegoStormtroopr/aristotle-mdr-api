@@ -30,6 +30,7 @@ setup(
     ],
     install_requires = [
         'djangorestframework>=3.6',
+        'django-rest-swagger',
         'coreapi',
         'Markdown',  # For rendering readable documentation for docstrings
         'aristotle-metadata-registry',  # duh
