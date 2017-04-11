@@ -15,8 +15,10 @@ from django.utils import six
 from django.utils.encoding import force_text, is_protected_type
 from django.core.serializers.python import _get_model
 from django.core.serializers.python import Serializer as PySerializer
-from aristotle_mdr.models import _concept
+from aristotle_mdr import models as MDR
 from django.core.serializers.json import Serializer as JSONSerializer
+
+import uuid
 
 excluded_fields = [
         "workgroup",
@@ -24,7 +26,7 @@ excluded_fields = [
     ]
 
 def exclude_fields(obj,excludes):
-    return [n for n in obj._meta.get_all_field_names() if n not in excludes]
+    return [n.name for n in obj._meta.get_fields() if n.name not in excludes]
 
 class Serializer(PySerializer):
     """
@@ -53,6 +55,63 @@ class Serializer(PySerializer):
         if not self.use_natural_primary_keys or not hasattr(obj, 'natural_key'):
             data["pk"] = force_text(obj._get_pk_val(), strings_only=True)
         data['fields'] = self._current
+
+        if 'aristotle_mdr.contrib.identifiers' in settings.INSTALLED_APPS:
+            data['identifiers'] = [
+                {
+                    'namespace': {
+                        'naming_authority': scoped_id.namespace.naming_authority.uuid,
+                        'shorthand_prefix': scoped_id.namespace.shorthand_prefix,
+                    },
+                    'id': scoped_id.identifier,
+                    'version': scoped_id.version
+                }
+                for scoped_id in obj.identifiers.all()
+            ]
+
+        if 'aristotle_mdr.contrib.slots' in settings.INSTALLED_APPS:
+            data['slots'] = [
+                {'name': slot.name, 'type': slot.type, 'value': slot.value }
+                for slot in obj.slots.all()
+            ]
+
+        # if 'aristotle_mdr.contrib.links' in settings.INSTALLED_APPS:
+        #     from aristotle_mdr.contrib.links import models as link_models
+        #     obj_links = link_models.Link.objects.filter(linkend__concept=obj).all().distinct()
+    
+        #     data['links'] = [
+        #         [{
+        #             'relation': {
+        #                 'uuid': link.relation.uuid,
+        #                 'name': link.relation.name,  # Optional!
+        #             },
+        #             'members': {   'concept': {
+        #                     'uuid': linkend.concept.uuid,
+        #                     'name': linkend.concept.name,  # Optional!
+        #                 },
+        #                 'role': {
+        #                     'ordinal': linkend.role.ordinal,
+        #                     'name': linkend.role.name,
+        #                     'definition': linkend.role.definition  # Optional!
+        #                 }
+        #             }
+        #         }
+        #             for linkend in link.linkend_set.all()
+        #         ]
+        #         for link in obj_links
+        #     ]
+
+        data['statuses'] = [
+            {
+                "change_details": status.changeDetails,
+                "until_date": status.until_date,
+                "registration_authority": status.registrationAuthority.uuid,
+                "state": status.state,
+                "state_meaning": status.get_state_display(),
+                "registration_date": status.registrationDate
+            }
+            for status in obj.current_statuses()
+        ]
         return data
 
     def handle_field(self, obj, field):
@@ -66,10 +125,8 @@ class Serializer(PySerializer):
             self._current[field.name] = field.value_to_string(obj)
 
     def handle_fk_field(self, obj, field):
-        #if self.use_aristotle_ids and hasattr(related, 'identifiers') and related.identifiers.count() > 0 :
-        #if True: # and hasattr(related, 'identifiers') and related.identifiers.count() > 0 :
         foreign_model = field.rel.to  # change to field.remote_field.model for django >= 1.9
-        if foreign_model and issubclass(foreign_model, _concept):
+        if foreign_model and issubclass(foreign_model, MDR._concept):
             value = []
             # print field.get_attname()
             if getattr(obj, field.get_attname()) is not None:
@@ -101,12 +158,6 @@ class Serializer(PySerializer):
                     return force_text(value._get_pk_val(), strings_only=True)
             self._current[field.name] = [
                 m2m_value(related) for related in getattr(obj, field.name).iterator()
-            ]
-        elif hasattr(obj, 'serialize_weak_entities') and field.name in dict(obj.serialize_weak_entities).keys():
-            weak_field = dict(obj.serialize_weak_entities).get(field.name)
-            foreign_model = getattr(obj.__class__, weak_field).related.related_model
-            self._current[field.name] = [
-                related for related in getattr(obj, weak_field).all().values(*exclude_fields(foreign_model, 'id'))
             ]
 
     def getvalue(self):
@@ -150,6 +201,28 @@ class Serializer(PySerializer):
                 if field.serialize:
                     if self.selected_fields is None or field.attname in self.selected_fields:
                         self.handle_m2m_field(obj, field)
+            
+            print(obj, hasattr(obj, 'serialize_weak_entities'))
+            if hasattr(obj, 'serialize_weak_entities'): # and field.name in dict(obj.serialize_weak_entities).keys():
+                for f,field in getattr(obj, 'serialize_weak_entities'):
+                    weak_field = field
+
+                    foreign_model = getattr(obj.__class__, weak_field).rel.related_model
+                    parent_field = getattr(obj.__class__, weak_field).rel.remote_field.name
+                    weak_serial = []
+                    for related in getattr(obj, weak_field).all():
+                        ser = {}
+                        for subfield in related._meta.fields:
+                            if subfield.name in exclude_fields(foreign_model, ['id', parent_field]):
+                                v = getattr(related,subfield.name)
+                                if issubclass(type(v), MDR._concept):
+                                    ser[subfield.name] = getattr(related,subfield.name).uuid
+                                else:
+                                    ser[subfield.name] = getattr(related,subfield.name)
+                        weak_serial.append(ser)
+                    self._current[f] = weak_serial
+
+
             self.end_object(obj)
             if self.first:
                 self.first = False
@@ -171,7 +244,10 @@ def Deserializer(object_list, **options):
     for d in object_list:
         # Look up the model and starting build a dict of data for it.
         try:
-            Model = _get_model(d["model"])
+            from django.contrib.contenttypes.models import ContentType
+            Model = ContentType.objects.get(
+                app_label=d["concept_type"]["app"],model=d["concept_type"]["model"]
+            ).model_class()
         except base.DeserializationError:
             if ignore:
                 continue
@@ -201,59 +277,121 @@ def Deserializer(object_list, **options):
                     field_value, options.get("encoding", settings.DEFAULT_CHARSET), strings_only=True
                 )
 
-            field = Model._meta.get_field(field_name)
-
-            # Handle M2M relations
-            if field.remote_field and isinstance(field.remote_field, models.ManyToManyRel):
-                model = field.remote_field.model
-                if hasattr(model._default_manager, 'get_by_natural_key'):
-                    def m2m_convert(value):
-                        if hasattr(value, '__iter__') and not isinstance(value, six.text_type):
-                            return model._default_manager.db_manager(db).get_by_natural_key(*value).pk
-                        else:
-                            return force_text(model._meta.pk.to_python(value), strings_only=True)
-                else:
-                    def m2m_convert(v):
-                        return force_text(model._meta.pk.to_python(v), strings_only=True)
-
-                try:
-                    m2m_data[field.name] = []
-                    for pk in field_value:
-                        m2m_data[field.name].append(m2m_convert(pk))
-                except Exception as e:
-                    raise base.DeserializationError.WithData(e, d['model'], d.get('pk'), pk)
-
-            # Handle FK fields
-            elif field.remote_field and isinstance(field.remote_field, models.ManyToOneRel):
-                model = field.remote_field.model
-                if field_value is not None:
-                    try:
-                        default_manager = model._default_manager
-                        field_name = field.remote_field.field_name
-                        if hasattr(default_manager, 'get_by_natural_key'):
-                            if hasattr(field_value, '__iter__') and not isinstance(field_value, six.text_type):
-                                obj = default_manager.db_manager(db).get_by_natural_key(*field_value)
-                                value = getattr(obj, field.remote_field.field_name)
-                                # If this is a natural foreign key to an object that
-                                # has a FK/O2O as the foreign key, use the FK value
-                                if model._meta.pk.remote_field:
-                                    value = value.pk
+            if field_name in dict(getattr(Model, 'serialize_weak_entities', {})).keys():
+                pass # Wait
+            else:
+                field = Model._meta.get_field(field_name)
+    
+                # Handle M2M relations
+                if field.remote_field and isinstance(field.remote_field, models.ManyToManyRel):
+                    model = field.remote_field.model
+                    if hasattr(model._default_manager, 'get_by_natural_key'):
+                        def m2m_convert(value):
+                            if hasattr(value, '__iter__') and not isinstance(value, six.text_type):
+                                return model._default_manager.db_manager(db).get_by_natural_key(*value).pk
                             else:
+                                return force_text(model._meta.pk.to_python(value), strings_only=True)
+                    else:
+                        def m2m_convert(v):
+                            return force_text(model._meta.pk.to_python(v), strings_only=True)
+    
+                    try:
+                        m2m_data[field.name] = []
+                        for pk in field_value:
+                            m2m_data[field.name].append(m2m_convert(pk))
+                    except Exception as e:
+                        raise base.DeserializationError.WithData(e, d['model'], d.get('pk'), pk)
+    
+                # Handle FK fields
+                elif field.remote_field and isinstance(field.remote_field, models.ManyToOneRel):
+                    model = field.remote_field.model
+                    if field_value is not None:
+                        try:
+                            default_manager = model._default_manager
+                            field_name = field.remote_field.field_name
+                            if hasattr(model, 'uuid'):
                                 value = model._meta.get_field(field_name).to_python(field_value)
-                            data[field.attname] = value
-                        else:
-                            data[field.attname] = model._meta.get_field(field_name).to_python(field_value)
+                            elif hasattr(default_manager, 'get_by_natural_key'):
+                                if hasattr(field_value, '__iter__') and not isinstance(field_value, six.text_type):
+                                    obj = default_manager.db_manager(db).get_by_natural_key(*field_value)
+                                    value = getattr(obj, field.remote_field.field_name)
+                                    # If this is a natural foreign key to an object that
+                                    # has a FK/O2O as the foreign key, use the FK value
+                                    if model._meta.pk.remote_field:
+                                        value = value.pk
+                                else:
+                                    value = model._meta.get_field(field_name).to_python(field_value)
+                                data[field.attname] = value
+                            else:
+                                data[field.attname] = model._meta.get_field(field_name).to_python(field_value)
+                        except Exception as e:
+                            raise base.DeserializationError.WithData(e, d['model'], d.get('pk'), field_value)
+                    else:
+                        data[field.attname] = None
+    
+                # Handle all other fields
+                else:
+                    try:
+                        data[field.name] = field.to_python(field_value)
                     except Exception as e:
                         raise base.DeserializationError.WithData(e, d['model'], d.get('pk'), field_value)
-                else:
-                    data[field.attname] = None
 
-            # Handle all other fields
-            else:
-                try:
-                    data[field.name] = field.to_python(field_value)
-                except Exception as e:
-                    raise base.DeserializationError.WithData(e, d['model'], d.get('pk'), field_value)
+        obj = build_instance(Model, data, db)
+        obj.save()  # Get it in the database.
 
-        obj = base.build_instance(Model, data, db)
+        for (field_name, field_value) in six.iteritems(d["fields"]):
+            weak_entities = dict(getattr(Model, 'serialize_weak_entities', {}))
+            if field_name in weak_entities.keys():
+                rel = getattr(
+                    Model,
+                    weak_entities.get(field_name)
+                )
+                RelModel = rel.rel.related_model
+                other_side = rel.rel.remote_field.name
+                for v in field_value:
+                    v.update({other_side:obj})
+                    RelModel.objects.update_or_create(**v)
+
+        if 'aristotle_mdr.contrib.slots' in settings.INSTALLED_APPS:
+            from aristotle_mdr.contrib.slots.models import Slot
+            for slot in d["slots"]:
+                slot.update()
+                Slot.objects.get_or_create(**{
+                    'concept': obj,
+                    'name': slot['name'],
+                    'type': slot['type'],
+                    'value': slot['value'],
+                })
+
+        for status in d["statuses"]:
+            ra, created = MDR.RegistrationAuthority.objects.get_or_create(
+                uuid=uuid.UUID(status["registration_authority"]),
+                defaults={'name': 'Unknown Registration Authority'}
+            )
+            if created:
+                pass # TODO: Log something useful
+            state = {
+                    "changeDetails": status.get("change_details",""),
+                    "until_date": status.get("until_date", None),
+                    "registrationAuthority": ra,
+                    "state": int(status["state"]),
+                    "registrationDate": status["registration_date"],
+                    "concept": obj
+                }
+            MDR.Status.objects.get_or_create(**state)
+
         yield base.DeserializedObject(obj, m2m_data)
+
+def build_instance(Model, data, db):
+    """
+    Build a model instance.
+    If the model instance doesn't have a primary key and the model supports
+    natural keys, try to retrieve it from the database.
+    """
+    obj = Model(**data)
+    if (obj.pk is None and hasattr(Model, 'uuid')):
+        try:
+            obj.pk = Model._default_manager.db_manager(db).get(uuid=obj.uuid).pk
+        except Model.DoesNotExist:
+            pass
+    return obj

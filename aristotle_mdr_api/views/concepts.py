@@ -75,81 +75,25 @@ class ConceptDetailSerializer(ConceptSerializerBase):
         fields = standard_fields+('fields','statuses','ids','slots', 'links')
 
     def get_extra_fields(self, instance):
-        # concept_dict = model_to_dict(instance,
-        #     fields=[field.name for field in get_api_fields(instance)],
-        #     exclude=api_excluded_fields
-        #     )
-        # return concept_dict
         obj = self.get_serialized_object(instance)
         return obj.get('fields',[])
 
     def get_identifiers(self, instance):
         obj = self.get_serialized_object(instance)
-        ids = [
-            {
-                'namespace': {
-                    'naming_authority': scoped_id.namespace.naming_authority.uuid,
-                    'shorthand_prefix': scoped_id.namespace.shorthand_prefix,
-                },
-                'id': scoped_id.identifier,
-                'version': scoped_id.version
-            }
-            for scoped_id in instance.identifiers.all()
-        ]
-        return ids #obj.get('slots',[])
+        return obj.get('identifiers',[])
 
     def get_slots(self, instance):
         obj = self.get_serialized_object(instance)
-        slots = [
-            {'name': slot.name, 'type': slot.type, 'value': slot.value }
-            for slot in instance.slots.all()
-        ]
-        return slots #obj.get('slots',[])
+        return obj.get('slots', [])
 
     def get_links(self, instance):
         obj = self.get_serialized_object(instance)
         from aristotle_mdr.contrib.links import models as link_models
-        obj_links = link_models.Link.objects.filter(linkend__concept=instance).all().distinct()
-
-        links = [
-            [{
-                'relation': {
-                    'uuid': link.relation.uuid,
-                    'name': link.relation.name,  # Optional!
-                },
-                'members': {   'concept': {
-                        'uuid': linkend.concept.uuid,
-                        'name': linkend.concept.name,  # Optional!
-                    },
-                    'role': {
-                        'ordinal': linkend.role.ordinal,
-                        'name': linkend.role.name,
-                        'definition': linkend.role.definition  # Optional!
-                    }
-                }
-            }
-                for linkend in link.linkend_set.all()
-            ]
-            for link in obj_links
-        ]
-        return links
+        return obj.get('links', [])
 
     def get_statuses(self, instance):
         obj = self.get_serialized_object(instance)
-        stats = [
-            {
-                "changeDetails": status.changeDetails,
-                "until_date": status.until_date,
-                "registration_authority": status.registrationAuthority.uuid,
-                "state": status.state,
-                "state_meaning": status.get_state_display(),
-                "registrationDate": status.registrationDate
-            }
-            for status in instance.current_statuses()
-        ]
-
-        return stats
-        # return obj.get('statuses',[])
+        return obj.get('statuses',[])
 
 
 class ConceptViewSet(UUIDLookupModelMixin, MultiSerializerViewSetMixin):
@@ -160,12 +104,12 @@ class ConceptViewSet(UUIDLookupModelMixin, MultiSerializerViewSetMixin):
     __doc__ = """
     Provides access to a paginated list of concepts within the fields:
 
-        %s
+            %s
 
     A single concept can be retrieved by appending the `uuid` for that
     item to the URL, giving access to the fields:
 
-        %s
+            %s
 
     Accepts the following GET parameters:
 
@@ -182,10 +126,10 @@ class ConceptViewSet(UUIDLookupModelMixin, MultiSerializerViewSetMixin):
 
     * `is_locked` (boolean) : restricts returned items to those which are locked/unlocked (True/False)
 
-     * `superseded_by` (integer) : restricts returned items to those that are
+    * `superseded_by` (integer) : restricts returned items to those that are
         superseded by the concept with an id that matches the given value.
 
-     * `is_superseded` (boolean) : restricts returned items to those that are
+    * `is_superseded` (boolean) : restricts returned items to those that are
         superseded by any other concept.
 
         Note: due to database restrictions it is not possible to restrict to only
@@ -202,7 +146,7 @@ class ConceptViewSet(UUIDLookupModelMixin, MultiSerializerViewSetMixin):
 
     serializers = {
         'default':  ConceptDetailSerializer,
-        'list':    ConceptListSerializer,
+        'list':    ConceptDetailSerializer,
         'detail':  ConceptDetailSerializer,
     }
     
@@ -213,36 +157,50 @@ class ConceptViewSet(UUIDLookupModelMixin, MultiSerializerViewSetMixin):
         type (string) : restricts to a particular concept type, eg. dataelement
 
         """
+        self.filter_class.Meta.model = self.get_content_type_for_request()
+        self.queryset = self.get_content_type_for_request().objects.all()
+        
         queryset = super(ConceptViewSet,self).get_queryset()
-        concepttype = self.request.query_params.get('type', None)
-        if concepttype is not None:
-            ct = concepttype.lower().split(":",1)
-            if len(ct) == 2:
-                app,model = ct
-                queryset = ContentType.objects.get(app_label=app,model=model).model_class().objects.all()
-            else:
-                model = concepttype
-                queryset = ContentType.objects.get(model=model).model_class().objects.all()
+        if self.request:
+            concepttype = self.request.query_params.get('type', None)
+            locked = self.request.query_params.get('is_locked', None)
+            public = self.request.query_params.get('is_public', None)
+            queryset = queryset.visible(self.request.user)
+        else:
+            concepttype = None
+            locked = None
+            public = None
+            queryset = queryset.public()
 
-            # superseded_by_id = self.request.query_params.get('superseded_by', None)
-            # if superseded_by_id is not None:
-            #     queryset = queryset.filter(superseded_by=superseded_by_id)
-            is_superseded = self.request.query_params.get('is_superseded', False)
-            if is_superseded:
-                queryset = queryset.filter(superseded_by__isnull=False)
+        #     # superseded_by_id = self.request.query_params.get('superseded_by', None)
+        #     # if superseded_by_id is not None:
+        #     #     queryset = queryset.filter(superseded_by=superseded_by_id)
+        #     is_superseded = self.request.query_params.get('is_superseded', False)
+        #     if is_superseded:
+        #         queryset = queryset.filter(superseded_by__isnull=False)
 
-        locked = self.request.query_params.get('is_locked', None)
         if locked is not None:
             locked = locked not in ["False","0","F"]
             queryset = queryset.filter(_is_locked=locked)
-        public = self.request.query_params.get('is_public', None)
         if public is not None:
             public = public not in ["False","0","F"]
             queryset = queryset.filter(_is_public=public)
 
+        return queryset
 
-        return queryset.visible(self.request.user)
+    def get_content_type_for_request(self):
+        content_type = models._concept
+        concepttype = self.request.query_params.get('type', None)
 
+        if concepttype is not None:
+            ct = concepttype.lower().split(":",1)
+            if len(ct) == 2:
+                app,model = ct
+                content_type = ContentType.objects.get(app_label=app,model=model).model_class()
+            else:
+                model = concepttype
+                content_type = ContentType.objects.get(model=model).model_class()
+        return content_type
 
     def check_object_permissions(self, request, obj):
         item = obj.item

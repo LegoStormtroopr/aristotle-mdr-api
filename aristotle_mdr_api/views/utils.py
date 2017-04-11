@@ -27,17 +27,17 @@ aristotle_apps = getattr(settings, 'ARISTOTLE_SETTINGS', {}).get('CONTENT_EXTENS
 aristotle_apps += ["aristotle_mdr"]
 
 api_excluded_fields = [
-            "_concept_ptr",
-            "_is_locked",
-            "_is_public",
-            "packages",
-            "relatedDiscussions",
-            "superseded_by",
-            "supersedes",
-            "version",
-            "workgroup",
-            'submitter',
-        ]
+    "_concept_ptr",
+    "_is_locked",
+    "_is_public",
+    "packages",
+    "relatedDiscussions",
+    "superseded_by",
+    "supersedes",
+    "version",
+    "workgroup",
+    'submitter',
+]
 
 def get_api_fields(cls):
     fields = cls._meta.get_fields()

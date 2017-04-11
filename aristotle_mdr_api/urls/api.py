@@ -12,7 +12,6 @@ router.register(r'search', views.SearchViewSet, base_name="search")
 router.register(r'ras', views.RegistrationAuthorityViewSet)
 # router.register(r'organizations', views.OrganizationViewSet)
 
-
 from rest_framework_swagger.views import get_swagger_view
 
 schema_view = get_swagger_view(title='Aristotle API')
@@ -21,5 +20,4 @@ urlpatterns = [
     url(r'^', include(router.urls)),
     url(r'^schemas/', schema_view),
     url(r'^auth/', include('rest_framework.urls', namespace='rest_framework')),
-    url(r'^swagger', schema_view)
 ]

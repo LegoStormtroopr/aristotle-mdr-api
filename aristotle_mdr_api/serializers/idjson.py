@@ -19,11 +19,11 @@ from django.utils import six
 from django.utils.timezone import is_aware
 
 from django.core.serializers.json import Serializer as JSONSerializer, DjangoJSONEncoder
-from aristotle_mdr_api.serializers.base import Serializer as Safe
+from aristotle_mdr_api.serializers.base import Serializer as Safe, Deserializer as DeSafe
 
 class Serializer(Safe):
     """
-    Convert a queryset to JSON.
+    Convert a queryset to the MDR-JSON format.
     """
     internal_use_only = False
 
@@ -66,3 +66,18 @@ class Serializer(Safe):
     def getvalue(self):
         # Grand-parent super
         return super(PythonSerializer, self).getvalue()
+
+
+def Deserializer(stream_or_string, **options):
+    """Deserialize a stream or string of JSON data."""
+    if not isinstance(stream_or_string, (bytes, str)):
+        stream_or_string = stream_or_string.read()
+    if isinstance(stream_or_string, bytes):
+        stream_or_string = stream_or_string.decode()
+    try:
+        objects = json.loads(stream_or_string)
+        yield from DeSafe(objects, **options)
+    except (GeneratorExit, DeserializationError):
+        raise
+    except Exception as exc:
+        raise DeserializationError() from exc
