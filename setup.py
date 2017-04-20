@@ -24,7 +24,7 @@ setup(
         'Intended Audience :: Developers',
         'License :: OSI Approved :: BSD License', # example license
         'Operating System :: OS Independent',
-        'Programming Language :: Python',
+        'Programming Language :: Python 3',
         'Topic :: Internet :: WWW/HTTP',
         'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
     ],
@@ -34,7 +34,8 @@ setup(
         'coreapi',
         'Markdown',  # For rendering readable documentation for docstrings
         'aristotle-metadata-registry',  # duh
-        'django-filter'
+        'django-filter',
+        'django>=1.10'
     ]
 
 )

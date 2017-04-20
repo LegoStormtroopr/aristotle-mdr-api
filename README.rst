@@ -17,14 +17,17 @@ Quick start
 
         INSTALLED_APPS = (
             ...
-            'aristotle_mdr',
-            'aristotle_mdr_api',
-            'rest_framework',
+            Your apps
             ...
-        )
+        ) + aristotle_mdr_api.settings.REQUIRED_APPS
+
+#. Add `SERIALIZATION_MODULES` and `REST_FRAMEWORK` to settings::
+
+        SERIALIZATION_MODULES = { 'mdrjson' : 'aristotle_mdr_api.serializers.idjson' }
+        REST_FRAMEWORK = aristotle_mdr_api.settings.REST_FRAMEWORK
 
 #. Include the API URL definitions in your Django URLconf file ::
 
-        url(r'^api/', include('aristotle_mdr_api.urls',app_name="aristotle_mdr_api",namespace="aristotle"))),
+        url(r'^api/', include('aristotle_mdr_api.urls')),
 
-#. Run ``python manage.py migrate`` to update the database to include the models for the API.
+#. Thats it!

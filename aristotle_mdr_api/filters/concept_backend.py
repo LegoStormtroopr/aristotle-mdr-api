@@ -13,8 +13,10 @@ class ConceptFilterBackend(DjangoFilterBackend):
 class ConceptFilter(django_filters.rest_framework.FilterSet):
     superseded_by = django_filters.UUIDFilter(
         name='superseded_by__uuid',
+        label="Superseded by"
     )
     identifier = django_filters.CharFilter(
+        label="Identifier",
         method='identifier_filter',
         help_text = (
             'Used to filter concept based on the requested identifier. '
@@ -28,15 +30,29 @@ class ConceptFilter(django_filters.rest_framework.FilterSet):
         method='concept_type_filter',
         help_text = (
             'An `app_label:concept_type` pair that filters results to '
-            'only return concepts of the specified type.'
+            'only return concepts of the specified type.\n\n'
+            'A list of models can be accessed at `/api/types/`, filterable '
+            'models are limited to the values of the `model` on each item returned '
+            'from the list.'
+
         )
     )
+    modified = django_filters.DateFromToRangeFilter(
+        # lookup_expr=['exact', 'gte', 'lte'],
+        help_text = (
+            'An `app_label:concept_type` pair that filters results to '
+            'only return concepts of the specified type.\n\n'
+            'A list of models can be accessed at `/api/types/`, filterable '
+            'models are limited to the values of the `model` on each item returned '
+            'from the list.'
 
+        )
+    )
     class Meta:
         model = MDR._concept
         fields = {
             'name': ['icontains',],
-            'modified': ['exact', 'gte', 'lte'],
+            # 'modified': ['exact', 'gte', 'lte'],
             'created': ['exact', 'gte', 'lte'],
             'type': ['exact']
         }

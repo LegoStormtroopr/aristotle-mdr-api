@@ -6,7 +6,7 @@ schema_view = get_schema_view(title="Aristotle Concepts API")
 
 # Create a router and register our viewsets with it.
 router = routers.DefaultRouter()
-router.register(r'concepts', concepts.ConceptViewSet)
+router.register(r'metadata', concepts.ConceptViewSet)
 router.register(r'types', concepttypes.ConceptTypeViewSet)
 router.register(r'search', views.SearchViewSet, base_name="search")
 router.register(r'ras', views.RegistrationAuthorityViewSet)

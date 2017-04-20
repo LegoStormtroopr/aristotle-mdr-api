@@ -202,11 +202,10 @@ class Serializer(PySerializer):
                     if self.selected_fields is None or field.attname in self.selected_fields:
                         self.handle_m2m_field(obj, field)
             
-            print(obj, hasattr(obj, 'serialize_weak_entities'))
             if hasattr(obj, 'serialize_weak_entities'): # and field.name in dict(obj.serialize_weak_entities).keys():
+
                 for f,field in getattr(obj, 'serialize_weak_entities'):
                     weak_field = field
-
                     foreign_model = getattr(obj.__class__, weak_field).rel.related_model
                     parent_field = getattr(obj.__class__, weak_field).rel.remote_field.name
                     weak_serial = []
@@ -222,7 +221,6 @@ class Serializer(PySerializer):
                         weak_serial.append(ser)
                     self._current[f] = weak_serial
 
-
             self.end_object(obj)
             if self.first:
                 self.first = False
@@ -230,7 +228,7 @@ class Serializer(PySerializer):
         return self.getvalue()
 
 
-def Deserializer(object_list, **options):
+def Deserializer(manifest, **options):
     """
     Deserialize simple Python objects back into Django ORM instances.
 
@@ -241,7 +239,31 @@ def Deserializer(object_list, **options):
     ignore = options.pop('ignorenonexistent', False)
     field_names_cache = {}  # Model: <list of field_names>
 
-    for d in object_list:
+    from aristotle_mdr.models import RegistrationAuthority
+    for ra in manifest.get('registration_authorities', []):
+        RegistrationAuthority.objects.get_or_create(
+            name=ra['name'],
+            definition=ra['definition'],
+            uuid=ra['uuid'],
+        )
+    from aristotle_mdr.models import Organization
+    for org in manifest.get('organizations', []):
+        o,_ = Organization.objects.get_or_create(
+            name=org['name'],
+            definition=org['definition'],
+            uuid=org['uuid'],
+        )
+        
+        if 'aristotle_mdr.contrib.identifiers' in settings.INSTALLED_APPS:
+            from aristotle_mdr.contrib.identifiers.models import Namespace
+            for namespace in org['namespaces']:
+                Namespace.objects.get_or_create(
+                    naming_authority = o,
+                    shorthand_prefix = namespace['shorthand_prefix']
+                )
+            
+
+    for d in manifest['metadata']:
         # Look up the model and starting build a dict of data for it.
         try:
             from django.contrib.contenttypes.models import ContentType
@@ -281,7 +303,7 @@ def Deserializer(object_list, **options):
                 pass # Wait
             else:
                 field = Model._meta.get_field(field_name)
-    
+
                 # Handle M2M relations
                 if field.remote_field and isinstance(field.remote_field, models.ManyToManyRel):
                     model = field.remote_field.model
@@ -309,7 +331,14 @@ def Deserializer(object_list, **options):
                         try:
                             default_manager = model._default_manager
                             field_name = field.remote_field.field_name
-                            if hasattr(model, 'uuid'):
+                            if issubclass(model, MDR._concept):
+                                value,c = model.objects.get_or_create(uuid=field_value, defaults={
+                                    'name': "no name",
+                                    'definition': 'no definition'
+                                })
+                                data[field.attname] = value.pk
+                                #_meta.get_field(field_name).to_python(field_value)
+                            elif hasattr(model, 'uuid'):
                                 value = model._meta.get_field(field_name).to_python(field_value)
                             elif hasattr(default_manager, 'get_by_natural_key'):
                                 if hasattr(field_value, '__iter__') and not isinstance(field_value, six.text_type):
@@ -355,13 +384,30 @@ def Deserializer(object_list, **options):
         if 'aristotle_mdr.contrib.slots' in settings.INSTALLED_APPS:
             from aristotle_mdr.contrib.slots.models import Slot
             for slot in d["slots"]:
-                slot.update()
                 Slot.objects.get_or_create(**{
                     'concept': obj,
                     'name': slot['name'],
-                    'type': slot['type'],
+                    'type': slot.get('type', ''),
                     'value': slot['value'],
                 })
+        if 'aristotle_mdr.contrib.identifiers' in settings.INSTALLED_APPS:
+            from aristotle_mdr.contrib.identifiers.models import ScopedIdentifier, Namespace
+            for identifier in d["identifiers"]:
+                try:
+                    namespace = Namespace.objects.get(
+                        shorthand_prefix=identifier['shorthand_prefix'],
+                        naming_authority__uuid=identifier['naming_authority']
+                        
+                    )
+                    ScopedIdentifier.objects.get_or_create(**{
+                        'concept': obj,
+                        'identifier': identifier['identifier'],
+                        'version': identifier.get('version', ""),
+                        'namespace': namespace
+                    })
+                except:
+                    #TODO: Better error logging
+                    pass
 
         for status in d["statuses"]:
             ra, created = MDR.RegistrationAuthority.objects.get_or_create(
@@ -378,7 +424,7 @@ def Deserializer(object_list, **options):
                     "registrationDate": status["registration_date"],
                     "concept": obj
                 }
-            MDR.Status.objects.get_or_create(**state)
+            st, c = MDR.Status.objects.get_or_create(**state)
 
         yield base.DeserializedObject(obj, m2m_data)
 
@@ -388,6 +434,7 @@ def build_instance(Model, data, db):
     If the model instance doesn't have a primary key and the model supports
     natural keys, try to retrieve it from the database.
     """
+    # obj,c = Model.objects.update_or_create(uuid=data['uuid'], defaults=data)
     obj = Model(**data)
     if (obj.pk is None and hasattr(Model, 'uuid')):
         try:
