@@ -19,5 +19,6 @@ urlpatterns = [
     # url(r'^schemas/', schema_view),
 
     url(r'^v1/', include('aristotle_mdr_api.v1.urls', namespace='aristotle_mdr_api.v1')),
-    url(r'^v2/', include('aristotle_mdr_api.v2.urls', namespace='aristotle_mdr_api.v2')),
+    # url(r'^v2/', include('aristotle_mdr_api.v2.urls', namespace='aristotle_mdr_api.v2')),
+    url(r'^edge/', include('aristotle_mdr_api.edge.urls', namespace='aristotle_mdr_api.edge')),
 ]
