@@ -111,21 +111,6 @@ class ConceptViewSet(
     Create a new metadata item.
     """
 
-    
-    
-    
-    x="""
-    Provides access to a paginated list of concepts within the fields:
-
-            %s
-
-    A single concept can be retrieved by appending the `uuid` for that
-    item to the URL.
-
-    Accepts the following GET parameters:
-
-    ---
-    """%(ConceptDetailSerializer.Meta.fields,)
     queryset = models._concept.objects.all()
     serializer_class = ConceptDetailSerializer
     pagination_class = ConceptResultsPagination
@@ -221,4 +206,6 @@ class ConceptViewSet(
                 s.object.recache_states()
             return Response({'created':output}) #stuff
         except Exception as e:
+            if 'explode' in request.query_params.keys():
+                raise
             return Response({'error': str(e)})

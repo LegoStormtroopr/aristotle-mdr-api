@@ -10,7 +10,7 @@ from collections import OrderedDict
 from django.apps import apps
 from django.conf import settings
 from django.core.serializers import base
-from django.db import DEFAULT_DB_ALIAS, models
+from django.db import DEFAULT_DB_ALIAS, models, transaction
 from django.utils import six
 from django.utils.encoding import force_text, is_protected_type
 from django.core.serializers.python import _get_model
@@ -227,7 +227,7 @@ class Serializer(PySerializer):
         self.end_serialization()
         return self.getvalue()
 
-
+@transaction.atomic()
 def Deserializer(manifest, **options):
     """
     Deserialize simple Python objects back into Django ORM instances.
@@ -332,6 +332,7 @@ def Deserializer(manifest, **options):
                             default_manager = model._default_manager
                             field_name = field.remote_field.field_name
                             if issubclass(model, MDR._concept):
+                                print(field_value)
                                 value,c = model.objects.get_or_create(uuid=field_value, defaults={
                                     'name': "no name",
                                     'definition': 'no definition'
@@ -377,9 +378,24 @@ def Deserializer(manifest, **options):
                 )
                 RelModel = rel.rel.related_model
                 other_side = rel.rel.remote_field.name
-                for v in field_value:
-                    v.update({other_side:obj})
-                    RelModel.objects.update_or_create(**v)
+                for weak_entity in field_value:
+                    # Boy this would be easier if uuids were primary keys :/
+                    extra = {}
+                    # Check if any fields are concepts
+                    for sub_field_name, sub_value in weak_entity.items():
+                        sub_field = RelModel._meta.get_field(sub_field_name)
+                        if sub_field.remote_field and isinstance(sub_field.remote_field, models.ManyToOneRel):
+                            sub_model = sub_field.remote_field.model
+                            if issubclass(sub_model, MDR._concept):
+                                # We have to hope this becomes consistent
+                                sub_obj,c = sub_model.objects.get_or_create(uuid=sub_value, defaults={
+                                    'name': "no name",
+                                    'definition': 'no definition'
+                                })
+                                weak_entity[sub_field_name] = sub_obj
+
+                    weak_entity.update({other_side:obj})
+                    RelModel.objects.update_or_create(**weak_entity)
 
         if 'aristotle_mdr.contrib.slots' in settings.INSTALLED_APPS:
             from aristotle_mdr.contrib.slots.models import Slot
@@ -395,8 +411,8 @@ def Deserializer(manifest, **options):
             for identifier in d["identifiers"]:
                 try:
                     namespace = Namespace.objects.get(
-                        shorthand_prefix=identifier['shorthand_prefix'],
-                        naming_authority__uuid=identifier['naming_authority']
+                        shorthand_prefix=identifier['namespace']['shorthand_prefix'],
+                        naming_authority__uuid=identifier['namespace']['naming_authority']
                         
                     )
                     ScopedIdentifier.objects.get_or_create(**{
@@ -406,6 +422,7 @@ def Deserializer(manifest, **options):
                         'namespace': namespace
                     })
                 except:
+                    raise
                     #TODO: Better error logging
                     pass
 
@@ -434,7 +451,6 @@ def build_instance(Model, data, db):
     If the model instance doesn't have a primary key and the model supports
     natural keys, try to retrieve it from the database.
     """
-    # obj,c = Model.objects.update_or_create(uuid=data['uuid'], defaults=data)
     obj = Model(**data)
     if (obj.pk is None and hasattr(Model, 'uuid')):
         try:
