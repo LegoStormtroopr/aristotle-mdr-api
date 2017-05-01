@@ -204,6 +204,7 @@ class ConceptViewSet(
                     'url': s.object.get_absolute_url()
                 })
                 s.object.recache_states()
+                print("output is ", len(output))
             return Response({'created':output}) #stuff
         except Exception as e:
             if 'explode' in request.query_params.keys():

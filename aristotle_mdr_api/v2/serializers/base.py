@@ -227,7 +227,7 @@ class Serializer(PySerializer):
         self.end_serialization()
         return self.getvalue()
 
-@transaction.atomic()
+# @transaction.atomic()
 def Deserializer(manifest, **options):
     """
     Deserialize simple Python objects back into Django ORM instances.
