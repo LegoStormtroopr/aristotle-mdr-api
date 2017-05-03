@@ -113,7 +113,7 @@ class ConceptViewSet(
     filter_class = concept_backend.ConceptFilter
 
     authentication_classes = (SessionAuthentication, BasicAuthentication)
-    permission_classes = (permissions.IsSuperuser,)
+    permission_classes = (permissions.IsSuperuserOrReadOnly,)
 
 
     def get_queryset(self):
@@ -192,6 +192,7 @@ class ConceptViewSet(
             manifest = data
 
         try:
+            print('here')
             output = []
             for s in Deserializer(manifest):
                 output.append({

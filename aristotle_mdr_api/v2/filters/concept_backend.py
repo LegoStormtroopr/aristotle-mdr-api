@@ -80,10 +80,9 @@ class ConceptFilter(django_filters.rest_framework.FilterSet):
 
     def concept_type_filter(self, queryset, name, value):
         """
-        dsfgikjsfoiksdhfksdgfsldkf
+        This requires overriding the queryset model which can't be done here
+        This is done in views.concepts
         """
-        # This requires overriding the queryset model whcih can be done here
-        # This is done in concepts.
         # ct = value.lower().split(":",1)
         # if len(ct) == 2:
         #     app,model = ct
