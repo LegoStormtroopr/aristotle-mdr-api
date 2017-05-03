@@ -29,11 +29,6 @@ from ..views.utils import (
 
 standard_fields = ('uuid', 'concept_type','visibility_status',)
 class ConceptSerializerBase(serializers.ModelSerializer):
-    # api_url = serializers.HyperlinkedIdentityField(
-    #     view_name='aristotle_mdr_api:_concept-detail',
-    #     format='html',
-    #     lookup_field='uuid'
-    # )
     concept_type = serializers.SerializerMethodField()
     visibility_status = serializers.SerializerMethodField()
 
@@ -204,7 +199,6 @@ class ConceptViewSet(
                     'url': s.object.get_absolute_url()
                 })
                 s.object.recache_states()
-                print("output is ", len(output))
             return Response({'created':output}) #stuff
         except Exception as e:
             if 'explode' in request.query_params.keys():

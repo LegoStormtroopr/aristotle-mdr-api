@@ -331,16 +331,14 @@ def Deserializer(manifest, **options):
                         try:
                             default_manager = model._default_manager
                             field_name = field.remote_field.field_name
-                            if issubclass(model, MDR._concept):
-                                print(field_value)
-                                value,c = model.objects.get_or_create(uuid=field_value, defaults={
-                                    'name': "no name",
-                                    'definition': 'no definition'
-                                })
-                                data[field.attname] = value.pk
-                                #_meta.get_field(field_name).to_python(field_value)
-                            elif hasattr(model, 'uuid'):
-                                value = model._meta.get_field(field_name).to_python(field_value)
+                            if hasattr(model, 'uuid'):
+                                if field_value: # ignore empty strings
+                                    value,c = model.objects.get_or_create(uuid=field_value, defaults={
+                                        'name': "no name",
+                                        'definition': 'no definition'
+                                    })
+                                    data[field.attname] = value.pk
+                                    #_meta.get_field(field_name).to_python(field_value)
                             elif hasattr(default_manager, 'get_by_natural_key'):
                                 if hasattr(field_value, '__iter__') and not isinstance(field_value, six.text_type):
                                     obj = default_manager.db_manager(db).get_by_natural_key(*field_value)
