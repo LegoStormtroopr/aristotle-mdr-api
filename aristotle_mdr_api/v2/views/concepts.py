@@ -1,7 +1,9 @@
-from django.http import Http404
 from django.conf import settings
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import PermissionDenied
+from django.db import transaction
+from django.forms import model_to_dict
+from django.utils.translation import ugettext_lazy as _
 
 from rest_framework import serializers, status, mixins, viewsets, generics
 from rest_framework.authentication import SessionAuthentication, BasicAuthentication
@@ -9,7 +11,7 @@ from rest_framework.decorators import detail_route
 from rest_framework.response import Response
 from rest_framework.reverse import reverse
 
-from django.forms import model_to_dict
+from reversion import revisions as reversion
 
 from aristotle_mdr import models, perms
 from aristotle_mdr.forms.search import PermissionSearchQuerySet
@@ -192,14 +194,24 @@ class ConceptViewSet(
             manifest = data
 
         try:
-            print('here')
             output = []
-            for s in Deserializer(manifest):
-                output.append({
-                    'uuid': s.object.uuid,
-                    'url': s.object.get_absolute_url()
-                })
-                s.object.recache_states()
+            with transaction.atomic():
+                for s in Deserializer(manifest):
+                    with reversion.create_revision():
+                        output.append({
+                            'uuid': s.object.uuid,
+                            'url': s.object.get_absolute_url()
+                        })
+                        s.submitter = request.user
+                        s.object.recache_states()
+        
+                        reversion.set_user(request.user)
+                        reversion.set_comment(
+                            _("Imported using API")
+                        )
+                        s.save()
+                    print('here')
+
             return Response({'created':output}) #stuff
         except Exception as e:
             if 'explode' in request.query_params.keys():
