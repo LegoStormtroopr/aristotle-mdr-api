@@ -56,12 +56,11 @@ class ConceptDetailSerializer(ConceptSerializerBase):
     statuses = serializers.SerializerMethodField()
 
 
-    _serialised_object = None
+    object_cache = {}
     def get_serialized_object(self, instance):
-        if not self._serialised_object:
-            s = Serializer().serialize([instance.item])
-            self._serialised_object = s[0]
-        return self._serialised_object
+        if instance.item.uuid not in self.object_cache.keys():
+            self.object_cache[instance.item.uuid] = Serializer().serialize([instance.item])[0]
+        return self.object_cache[instance.item.uuid]
         
     class Meta:
         model = models._concept
