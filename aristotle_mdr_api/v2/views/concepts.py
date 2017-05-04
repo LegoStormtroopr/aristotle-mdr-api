@@ -59,7 +59,7 @@ class ConceptDetailSerializer(ConceptSerializerBase):
     _serialised_object = None
     def get_serialized_object(self, instance):
         if not self._serialised_object:
-            s = Serializer().serialize([instance])
+            s = Serializer().serialize([instance.item])
             self._serialised_object = s[0]
         return self._serialised_object
         
@@ -210,7 +210,6 @@ class ConceptViewSet(
                             _("Imported using API")
                         )
                         s.save()
-                    print('here')
 
             return Response({'created':output}) #stuff
         except Exception as e:
