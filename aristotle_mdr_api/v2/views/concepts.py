@@ -124,7 +124,8 @@ class ConceptViewSet(
         type (string) : restricts to a particular concept type, eg. dataelement
 
         """
-
+        self.queryset = self.get_content_type_for_request().objects.all()
+        
         queryset = super(ConceptViewSet,self).get_queryset()
         if self.request:
             concepttype = self.request.query_params.get('type', None)
@@ -152,6 +153,27 @@ class ConceptViewSet(
             queryset = queryset.filter(_is_public=public)
 
         return queryset
+
+    def get_content_type_for_request(self):
+        content_type = models._concept
+        concepttype = self.request.query_params.get('type', None)
+
+        if concepttype is not None:
+            ct = concepttype.lower().split(":",1)
+            if len(ct) == 2:
+                app,model = ct
+                content_type = ContentType.objects.get(app_label=app,model=model).model_class()
+            else:
+                model = concepttype
+                content_type = ContentType.objects.get(model=model).model_class()
+
+            class SpecialFilter(self.filter_class):
+                class Meta(self.filter_class.Meta):
+                    model = content_type
+            
+            self.filter_class = SpecialFilter
+
+        return content_type
 
     def check_object_permissions(self, request, obj):
         item = obj.item
