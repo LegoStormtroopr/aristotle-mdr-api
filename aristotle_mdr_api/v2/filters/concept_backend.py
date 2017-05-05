@@ -136,16 +136,13 @@ class ConceptFilter(django_filters.rest_framework.FilterSet):
         This requires overriding the queryset model which can't be done here
         This is done in views.concepts
         """
-        # ct = value.lower().split(":",1)
-        # if len(ct) == 2:
-        #     app,model = ct
-        #     concept_type = ContentType.objects.get(app_label=app,model=model).model_class()
-        # else:
-        #     model = concepttype
-        #     concept_type = ContentType.objects.get(model=model).model_class()
 
-        # queryset.model = concept_type
-        # queryset.query.model = concept_type
-        # queryset = queryset._clone()
+        ct = value.lower().split(":",1)
+        if len(ct) == 2:
+            app,model = ct
+            concept_type = ContentType.objects.get(app_label=app,model=model).model_class()
+        else:
+            model = value
+            concept_type = ContentType.objects.get(model=model).model_class()
 
-        return queryset
+        return queryset.filter(**{"%s__isnull"%model:False})
