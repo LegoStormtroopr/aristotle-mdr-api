@@ -52,6 +52,7 @@ class ConceptFilter(django_filters.rest_framework.FilterSet):
         model = MDR._concept
         fields = {
             'name': ['icontains',],
+            'uuid': ['exact',],
             # 'modified': ['exact', 'gte', 'lte'],
             'created': ['exact', 'gte', 'lte'],
             'type': ['exact']

@@ -72,14 +72,15 @@ class SearchViewSet(viewsets.GenericViewSet):
         return Response(serializer.data)
 
 class RegistrationAuthorityListSerializer(serializers.ModelSerializer,DescriptionStubSerializerMixin):
-    api_url = serializers.HyperlinkedIdentityField(
-        view_name='aristotle_mdr_api:registrationauthority-detail',
-        format='html',
-        lookup_field='uuid'
-    )
+    # api_url = serializers.HyperlinkedIdentityField(
+    #     view_name='aristotle_mdr_api:registrationauthority-detail',
+    #     format='html',
+    #     lookup_field='uuid'
+    # )
     class Meta:
         model = models.RegistrationAuthority
-        fields = ('uuid','api_url','name','definition','locked_state','public_state')
+        # fields = ('uuid','api_url','name','definition','locked_state','public_state')
+        fields = ('uuid','name','definition','locked_state','public_state')
 
 class RegistrationAuthorityDetailSerializer(serializers.ModelSerializer):
     state_meanings = serializers.SerializerMethodField()

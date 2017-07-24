@@ -118,7 +118,7 @@ class ConceptViewSet(
     filter_class = concept_backend.ConceptFilter
 
     authentication_classes = (SessionAuthentication, BasicAuthentication)
-    permission_classes = (permissions.IsSuperuser,)
+    permission_classes = () #permissions.IsSuperuser,)
 
 
     def get_queryset(self):

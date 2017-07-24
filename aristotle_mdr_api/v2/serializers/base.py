@@ -19,6 +19,8 @@ from aristotle_mdr import models as MDR
 from django.core.serializers.json import Serializer as JSONSerializer
 
 import uuid
+import datetime
+from reversion import revisions as reversion
 
 excluded_fields = [
         "workgroup",
@@ -80,26 +82,21 @@ class Serializer(PySerializer):
         #     obj_links = link_models.Link.objects.filter(linkend__concept=obj).all().distinct()
     
         #     data['links'] = [
-        #         [{
-        #             'relation': {
-        #                 'uuid': link.relation.uuid,
-        #                 'name': link.relation.name,  # Optional!
-        #             },
-        #             'members': {   'concept': {
-        #                     'uuid': linkend.concept.uuid,
-        #                     'name': linkend.concept.name,  # Optional!
-        #                 },
-        #                 'role': {
-        #                     'ordinal': linkend.role.ordinal,
-        #                     'name': linkend.role.name,
-        #                     'definition': linkend.role.definition  # Optional!
-        #                 }
-        #             }
-        #         }
-        #             for linkend in link.linkend_set.all()
-        #         ]
-        #         for link in obj_links
-        #     ]
+                #     [{
+                #         'relation': {
+                #             link.relation.uuid,
+                #         },
+                #         'members': [{
+                #             'concept': linkend.concept.uuid,
+                #             'role': linkend.role.name,
+                #             }]
+                #         }
+                #     }
+                #         for linkend in link.linkend_set.all()
+                #     ]
+                #     for link in obj_links
+                # ]
+
 
         data['statuses'] = [
             {
@@ -128,7 +125,7 @@ class Serializer(PySerializer):
         foreign_model = field.rel.to  # change to field.remote_field.model for django >= 1.9
         if foreign_model and issubclass(foreign_model, MDR._concept):
             value = []
-            # print field.get_attname()
+
             if getattr(obj, field.get_attname()) is not None:
                 value = foreign_model.objects.get(pk=getattr(obj, field.get_attname())).uuid
                 #value = getattr(obj, field.get_attname()).uuid
@@ -241,11 +238,21 @@ def Deserializer(manifest, **options):
 
     from aristotle_mdr.models import RegistrationAuthority
     for ra in manifest.get('registration_authorities', []):
-        RegistrationAuthority.objects.get_or_create(
-            name=ra['name'],
-            definition=ra['definition'],
-            uuid=ra['uuid'],
-        )
+        if ra['uuid']:
+            ra = RegistrationAuthority.objects.update_or_create(
+                uuid=ra['uuid'],
+                defaults={
+                    'name': ra['name'],
+                    'definition': ra['definition'],
+                }
+            )
+        else:
+            ra = RegistrationAuthority.objects.create(
+                # uuid=ra['uuid'],
+                name = ra['name'],
+                definition = ra['definition']
+            )
+    
     from aristotle_mdr.models import Organization
     for org in manifest.get('organizations', []):
         o,_ = Organization.objects.get_or_create(
@@ -267,9 +274,11 @@ def Deserializer(manifest, **options):
         # Look up the model and starting build a dict of data for it.
         try:
             from django.contrib.contenttypes.models import ContentType
+
             Model = ContentType.objects.get(
                 app_label=d["concept_type"]["app"],model=d["concept_type"]["model"]
             ).model_class()
+
         except base.DeserializationError:
             if ignore:
                 continue
@@ -366,84 +375,110 @@ def Deserializer(manifest, **options):
                     except Exception as e:
                         raise base.DeserializationError.WithData(e, d['model'], d.get('pk'), field_value)
 
-        obj = build_instance(Model, data, db)
-        obj.save()  # Get it in the database.
-
-        for (field_name, field_value) in six.iteritems(d["fields"]):
-            weak_entities = dict(getattr(Model, 'serialize_weak_entities', {}))
-            if field_name in weak_entities.keys():
-                rel = getattr(
-                    Model,
-                    weak_entities.get(field_name)
-                )
-                RelModel = rel.rel.related_model
-                other_side = rel.rel.remote_field.name
-                for weak_entity in field_value:
-                    # Boy this would be easier if uuids were primary keys :/
-                    extra = {}
-                    # Check if any fields are concepts
-                    for sub_field_name, sub_value in weak_entity.items():
-                        sub_field = RelModel._meta.get_field(sub_field_name)
-                        if sub_field.remote_field and isinstance(sub_field.remote_field, models.ManyToOneRel):
-                            sub_model = sub_field.remote_field.model
-                            if issubclass(sub_model, MDR._concept):
-                                # We have to hope this becomes consistent
-                                sub_obj,c = sub_model.objects.get_or_create(uuid=sub_value, defaults={
-                                    'name': "no name",
-                                    'definition': 'no definition'
-                                })
-                                weak_entity[sub_field_name] = sub_obj
-
-                    weak_entity.update({other_side:obj})
-                    RelModel.objects.update_or_create(**weak_entity)
-
-        if 'aristotle_mdr.contrib.slots' in settings.INSTALLED_APPS:
-            from aristotle_mdr.contrib.slots.models import Slot
-            for slot in d["slots"]:
-                Slot.objects.get_or_create(**{
-                    'concept': obj,
-                    'name': slot['name'],
-                    'type': slot.get('type', ''),
-                    'value': slot['value'],
-                })
-        if 'aristotle_mdr.contrib.identifiers' in settings.INSTALLED_APPS:
-            from aristotle_mdr.contrib.identifiers.models import ScopedIdentifier, Namespace
-            for identifier in d["identifiers"]:
-                try:
-                    namespace = Namespace.objects.get(
-                        shorthand_prefix=identifier['namespace']['shorthand_prefix'],
-                        naming_authority__uuid=identifier['namespace']['naming_authority']
-                        
+        with reversion.create_revision():
+            obj = build_instance(Model, data, db)
+            obj.save()  # Get it in the database.
+    
+            for (field_name, field_value) in six.iteritems(d["fields"]):
+                weak_entities = dict(getattr(Model, 'serialize_weak_entities', {}))
+                if field_name in weak_entities.keys():
+                    rel = getattr(
+                        Model,
+                        weak_entities.get(field_name)
                     )
-                    ScopedIdentifier.objects.get_or_create(**{
+                    RelModel = rel.rel.related_model
+                    other_side = rel.rel.remote_field.name
+                    for weak_entity in field_value:
+                        # Boy this would be easier if uuids were primary keys :/
+                        extra = {}
+                        # Check if any fields are concepts
+                        for sub_field_name, sub_value in weak_entity.items():
+                            sub_field = RelModel._meta.get_field(sub_field_name)
+                            if sub_field.remote_field and isinstance(sub_field.remote_field, models.ManyToOneRel):
+                                sub_model = sub_field.remote_field.model
+                                if issubclass(sub_model, MDR._concept):
+                                    # We have to hope this becomes consistent
+                                    sub_obj,c = sub_model.objects.get_or_create(uuid=sub_value, defaults={
+                                        'name': "no name",
+                                        'definition': 'no definition'
+                                    })
+                                    weak_entity[sub_field_name] = sub_obj
+    
+                        weak_entity.update({other_side:obj})
+                        RelModel.objects.update_or_create(**weak_entity)
+    
+            if 'aristotle_mdr.contrib.slots' in settings.INSTALLED_APPS:
+                from aristotle_mdr.contrib.slots.models import Slot
+                for slot in d.get("slots", []):
+                    Slot.objects.get_or_create(**{
                         'concept': obj,
-                        'identifier': identifier['identifier'],
-                        'version': identifier.get('version', ""),
-                        'namespace': namespace
+                        'name': slot['name'],
+                        'type': slot.get('type', ''),
+                        'value': slot['value'],
                     })
-                except:
-                    raise
-                    #TODO: Better error logging
-                    pass
+            if 'aristotle_mdr.contrib.identifiers' in settings.INSTALLED_APPS:
+                from aristotle_mdr.contrib.identifiers.models import ScopedIdentifier, Namespace
+                for identifier in d.get("identifiers", []):
+                    try:
+                        namespace = Namespace.objects.get(
+                            shorthand_prefix=identifier['namespace']['shorthand_prefix'],
+                            naming_authority__uuid=identifier['namespace']['naming_authority']
+                            
+                        )
+                        ScopedIdentifier.objects.get_or_create(**{
+                            'concept': obj,
+                            'identifier': identifier['identifier'],
+                            'version': identifier.get('version', ""),
+                            'namespace': namespace
+                        })
+                    except:
+                        raise
+                        #TODO: Better error logging
+                        pass
+    
+            for status in d.get("statuses", []):
+                ra, created = MDR.RegistrationAuthority.objects.get_or_create(
+                    uuid=uuid.UUID(status["registration_authority"]),
+                    defaults={'name': 'Unknown Registration Authority'}
+                )
+                if created:
+                    pass # TODO: Log something useful
+                state = {
+                        "changeDetails": status.get("change_details",""),
+                        "until_date": status.get("until_date", None),
+                        "registrationAuthority": ra,
+                        "state": int(status["state"]),
+                        "registrationDate": datetime.datetime.strptime(status["registration_date"], '%Y-%m-%d'),
+                        "concept": obj
+                    }
+                st, c = MDR.Status.objects.get_or_create(**state)
 
-        for status in d["statuses"]:
-            ra, created = MDR.RegistrationAuthority.objects.get_or_create(
-                uuid=uuid.UUID(status["registration_authority"]),
-                defaults={'name': 'Unknown Registration Authority'}
-            )
-            if created:
-                pass # TODO: Log something useful
-            state = {
-                    "changeDetails": status.get("change_details",""),
-                    "until_date": status.get("until_date", None),
-                    "registrationAuthority": ra,
-                    "state": int(status["state"]),
-                    "registrationDate": status["registration_date"],
-                    "concept": obj
-                }
-            st, c = MDR.Status.objects.get_or_create(**state)
 
-        yield base.DeserializedObject(obj, m2m_data)
+            if "links" in d.keys() and 'aristotle_mdr.contrib.links' in settings.INSTALLED_APPS:
+                from aristotle_mdr.contrib.links import models as link_models
+                # obj_links = link_models.Link.objects.filter(linkend__concept=obj).all().distinct()
+                
+                link_models.Link.objects.filter(linkend__concept=obj).all().distinct().delete()
+                for data in d.get("links", []):
+                    rel = link_models.Relation.objects.get(uuid=data['relation'])
+                    link = link_models.Link.objects.create(relation=rel)
+                    for ordinal, m in enumerate(data['members']):
+                        concept = MDR._concept.objects.get(uuid=m['concept'])
+                        role, c = link_models.RelationRole.objects.get_or_create(
+                            name=m['link'],
+                            defaults={
+                                "relation": rel,
+                                "ordinal": 0,
+                            }
+                        )
+                        link_models.LinkEnd.objects.update_or_create(
+                            link=link,
+                            role=role,
+                            concept=concept
+                        )
+
+    
+            yield base.DeserializedObject(obj, m2m_data)
 
 def build_instance(Model, data, db):
     """
