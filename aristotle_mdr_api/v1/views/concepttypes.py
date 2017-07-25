@@ -24,11 +24,12 @@ from .utils import (
 )
 
 class ConceptTypeSerializer(serializers.ModelSerializer):
+    api_url = serializers.HyperlinkedIdentityField(view_name='aristotle_mdr_api.v1:contenttype-detail', format='html')
     documentation = serializers.SerializerMethodField()
     fields = serializers.SerializerMethodField('get_extra_fields')
     class Meta:
         model = ContentType
-        fields = ('name','app_label','model','documentation','fields')
+        fields = ('id','api_url','name','app_label','model','documentation','fields')
     def get_documentation(self,instance):
         return instance.model_class().__doc__.strip()
     def get_extra_fields(self,instance):
@@ -68,8 +69,7 @@ class ConceptTypeViewSet(viewsets.ReadOnlyModelViewSet):
         """
         outputs = []
         for m in ContentType.objects.filter(app_label__in=aristotle_apps).all():
-            if hasattr(m, 'model_class') and m.model_class():
-                print(m.model_class().__class__, models._concept)
-                if issubclass(m.model_class(), models._concept) and not m.model.startswith("_"):
+            if hasattr(m, 'model_class'):
+                if issubclass(m.model_class().__class__, models._concept.__class__) and not m.model.startswith("_"):
                     outputs.append(m)
         return outputs
