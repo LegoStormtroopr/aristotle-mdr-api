@@ -29,7 +29,7 @@ setup(
         'Topic :: Internet :: WWW/HTTP :: Dynamic Content',
     ],
     install_requires = [
-        'djangorestframework>=3.6.2',
+        'djangorestframework>3.7',
         'django-rest-swagger',
         'coreapi',
         'Markdown',  # For rendering readable documentation for docstrings

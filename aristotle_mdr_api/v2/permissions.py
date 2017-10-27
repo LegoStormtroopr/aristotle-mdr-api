@@ -1,5 +1,4 @@
 from rest_framework import permissions
-from rest_framework.compat import is_authenticated
 
 
 class IsSuperuserOrReadOnly(permissions.BasePermission):
@@ -12,6 +11,6 @@ class IsSuperuserOrReadOnly(permissions.BasePermission):
             return True
         return (
             request.user and
-            is_authenticated(request.user) and
+            request.user.is_authenticated() and
             request.user.is_superuser
         )
