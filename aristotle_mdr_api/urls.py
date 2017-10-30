@@ -31,10 +31,11 @@ urlpatterns = [
     url(r'^auth/', include('rest_framework.urls', namespace='rest_framework')),
     # url(r'^docs/', include_docs_urls(title=API_TITLE, description=API_DESCRIPTION)),
 
-    url(r'^(?P<version>(v1|v2)?)/schemas/', version_schema),
+    url(r'^(?P<version>(v1|v2|v3)?)/schemas/', version_schema),
     url(r'^schemas/', get_swagger_view(title='Aristotle API')),
 
     url(r'^v1/', include('aristotle_mdr_api.v1.urls', namespace='aristotle_mdr_api.v1')),
     url(r'^v2/', include('aristotle_mdr_api.v2.urls', namespace='aristotle_mdr_api.v2')),
-    # url(r'^edge/', include('aristotle_mdr_api.v2.urls', namespace='aristotle_mdr_api.v2')),
+    url(r'^v3/', include('aristotle_mdr_api.v3.urls', namespace='aristotle_mdr_api.v3')),
+    # url(r'^edge/', include('aristotle_mdr_api.v3.urls', namespace='aristotle_mdr_api.v3')),
 ]
