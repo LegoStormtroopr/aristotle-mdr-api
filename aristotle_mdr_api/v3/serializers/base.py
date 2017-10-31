@@ -430,10 +430,10 @@ def Deserializer(manifest, **options):
                 from aristotle_mdr.contrib.identifiers.models import ScopedIdentifier, Namespace
                 for identifier in d.get("identifiers", []):
                     try:
-                        namespace = Namespace.objects.get(
+                        org = Organization.objects.get(uuid=identifier['namespace']['naming_authority'])
+                        namespace, c = Namespace.objects.get_or_create(
                             shorthand_prefix=identifier['namespace']['shorthand_prefix'],
-                            naming_authority__uuid=identifier['namespace']['naming_authority']
-                            
+                            naming_authority=org
                         )
                         ScopedIdentifier.objects.get_or_create(**{
                             'concept': obj,
@@ -441,7 +441,8 @@ def Deserializer(manifest, **options):
                             'version': identifier.get('version', ""),
                             'namespace': namespace
                         })
-                    except:
+                    except Exception as e:
+                        logger.warning(e)
                         raise
                         #TODO: Better error logging
                         pass
